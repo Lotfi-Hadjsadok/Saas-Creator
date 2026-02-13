@@ -1,169 +1,80 @@
-'use server'
+'use server';
 
-import * as cheerio from 'cheerio';
-import { chromium } from 'playwright';
-
-type ContentItem =
-  | { type: 'text'; content: string }
-  | { type: 'image'; url: string }
-  | { type: 'video'; url: string };
-
-type LinkItem = { url: string };
-
-type ImageItem = Extract<ContentItem, { type: 'image' }>;
-type VideoItem = Extract<ContentItem, { type: 'video' }>;
-
-export type ExtractResult = {
-  url: string;
-  items: ContentItem[];
-  images: ImageItem[];
-  videos: VideoItem[];
-  links: LinkItem[];
-};
+import type {
+  CopyAgentResult,
+  DesignAgentResult,
+  ExtractResult,
+  GenerateAdImagesResult,
+} from '@/types';
+import { generateAdImages as generateAdImagesService } from '@/services/ad-images';
+import { generateAdCopy as generateAdCopyService } from '@/services/copy';
+import { generateCreativeDesign as generateCreativeDesignService } from '@/services/design';
+import { extractWebsite as extractWebsiteService } from '@/services/extract';
 
 export async function extractWebsite(
   _prevState: ExtractResult,
   formData: FormData,
 ): Promise<ExtractResult> {
   const url = (formData.get('url') as string) ?? '';
+  return extractWebsiteService(url);
+}
 
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+export async function generateAdCopy(
+  _prevState: CopyAgentResult,
+  formData: FormData,
+): Promise<CopyAgentResult> {
+  const content = (formData.get('content') as string) ?? '';
+  const url = (formData.get('url') as string) ?? '';
+  const imagesJson = formData.get('images') as string | null;
+  const rawImageUrls = imagesJson ? (JSON.parse(imagesJson) as string[]) : [];
+  return generateAdCopyService(content, url, rawImageUrls);
+}
 
-  await page.goto(url, {
-    waitUntil: 'domcontentloaded',
-    timeout: 60000,
-  });
+export async function generateCreativeDesign(
+  _prevState: DesignAgentResult,
+  formData: FormData,
+): Promise<DesignAgentResult> {
+  const creativesJson = (formData.get('creatives') as string)?.trim() ?? '';
+  const url = (formData.get('url') as string) ?? '';
+  const imagesJson = formData.get('images') as string | null;
+  const rawImageUrls = imagesJson ? (JSON.parse(imagesJson) as string[]) : [];
+  const accentColorsJson = formData.get('accentColors') as string | null;
+  const extractedAccentColors = accentColorsJson ? (JSON.parse(accentColorsJson) as string[]) : [];
+  return generateCreativeDesignService(creativesJson, url, rawImageUrls, extractedAccentColors);
+}
 
-  const html = await page.content();
-
-  await browser.close();
-
-  const $ = cheerio.load(html);
-
-  const items: ContentItem[] = [];
-  const links: LinkItem[] = [];
-
-  const walk = (node: any, inLink: boolean = false) => {
-    // Skip scripts completely
-    if (
-      node.type === 'script' ||
-      (node.type === 'tag' && node.name === 'script')
-    ) {
-      return;
+export async function generateAdImages(
+  _prevState: GenerateAdImagesResult,
+  formData: FormData,
+): Promise<GenerateAdImagesResult> {
+  const designsJson = (formData.get('designs') as string)?.trim() ?? '';
+  const creativesJson = (formData.get('creatives') as string)?.trim() ?? '';
+  const baseUrl = (formData.get('url') as string)?.trim() || null;
+  const imagesJson = formData.get('images') as string | null;
+  const rawImageUrls = imagesJson ? (JSON.parse(imagesJson) as string[]) : [];
+  const indexRaw = formData.get('index') as string | null;
+  const singleIndex =
+    indexRaw !== null && indexRaw !== '' ? parseInt(indexRaw, 10) : null;
+  const existingJson = formData.get('existingImageUrls') as string | null;
+  let existingUrls: [string, string, string] = ['', '', ''];
+  if (existingJson) {
+    try {
+      const parsed = JSON.parse(existingJson) as string[];
+      existingUrls = [
+        String(parsed[0] ?? ''),
+        String(parsed[1] ?? ''),
+        String(parsed[2] ?? ''),
+      ];
+    } catch {
+      /**/
     }
-
-    if (node.type === 'tag') {
-      if (node.name === 'a') {
-        const el = $(node);
-        const href = el.attr('href');
-        if (href) {
-          links.push({ url: href });
-        }
-        // Do not capture text inside links as content,
-        // but still walk children so we keep nested images/videos.
-        if ('children' in node && Array.isArray(node.children)) {
-          for (const child of node.children) {
-            walk(child, true);
-          }
-        }
-        return;
-      }
-
-      if (node.name === 'button') {
-        // Ignore button text but still traverse children (for nested images/videos)
-        if ('children' in node && Array.isArray(node.children)) {
-          for (const child of node.children) {
-            walk(child, true);
-          }
-        }
-        return;
-      }
-
-      if (node.name === 'img') {
-        const el = $(node);
-        const src = el.attr('src');
-        if (src) {
-          items.push({
-            type: 'image',
-            url: src,
-          });
-        }
-      } else if (node.name === 'video') {
-        const el = $(node);
-        let src = el.attr('src');
-
-        if (!src) {
-          const source = el.find('source').first();
-          src = source.attr('src');
-        }
-
-        if (src) {
-          items.push({
-            type: 'video',
-            url: src,
-          });
-        }
-      }
-    }
-
-    if (node.type === 'text') {
-      if (inLink) {
-        return;
-      }
-      // Skip any text that is inside an <svg> (style defs, labels like "SOOQME2SVG", etc.)
-      const isInsideSvg = $(node).parents('svg').length > 0;
-      if (isInsideSvg) {
-        return;
-      }
-
-      const raw = node.data ?? '';
-      const text = raw.replace(/\s+/g, ' ').trim();
-      if (!text) {
-        return;
-      }
-
-      // Skip CSS‑like chunks such as ".st0 { fill: ... }"
-      const looksLikeCss =
-        /{[^}]*}/.test(text) &&
-        /;/.test(text) &&
-        /(\.|#)[a-zA-Z0-9_-]+\s*\{/.test(text);
-      if (looksLikeCss) {
-        return;
-      }
-
-      items.push({
-        type: 'text',
-        content: text,
-      });
-    }
-
-    if ('children' in node && Array.isArray(node.children)) {
-      for (const child of node.children) {
-        walk(child, inLink);
-      }
-    }
-  };
-
-  const body = $('body').get(0);
-  if (body) {
-    walk(body);
   }
-
-  const images: ImageItem[] = items.filter(
-    (item): item is ImageItem => item.type === 'image',
+  return generateAdImagesService(
+    designsJson,
+    creativesJson,
+    baseUrl,
+    rawImageUrls,
+    singleIndex,
+    existingUrls,
   );
-
-  const videos: VideoItem[] = items.filter(
-    (item): item is VideoItem => item.type === 'video',
-  );
-
-
-  return {
-    url,
-    items,
-    images,
-    videos,
-    links,
-  };
 }

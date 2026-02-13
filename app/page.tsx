@@ -1,123 +1,129 @@
 "use client";
 
-import { Suspense, useActionState } from "react";
+import { useActionState } from "react";
+import { GenerateContentSidebar } from "@/components/generate-content-sidebar";
+import { ResultsPanel } from "@/components/results-panel";
+import { PipelineSidebar } from "@/components/pipeline-sidebar";
+import {
+  extractWebsite,
+  generateAdCopy,
+  generateCreativeDesign,
+  generateAdImages,
+} from "@/app/actions";
+import type {
+  ExtractResult,
+  CopyAgentResult,
+  DesignAgentResult,
+  GenerateAdImagesResult,
+} from "@/types";
 
-import { FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { extractWebsite, type ExtractResult } from "./actions";
-
-const initialState: ExtractResult = {
+const initialExtract: ExtractResult = {
   url: "",
   items: [],
   images: [],
   videos: [],
   links: [],
+  accentColors: [],
 };
 
 export default function Home() {
-  const [state, formAction, isPending] = useActionState(
+  const [extractState, extractFormAction, extractPending] = useActionState(
     extractWebsite,
-    initialState
+    initialExtract
+  );
+  const [adCopyResult, adCopyFormAction, adCopyPending] =
+    useActionState(generateAdCopy, {} as CopyAgentResult);
+  const [designResult, designFormAction, designPending] =
+    useActionState(generateCreativeDesign, {} as DesignAgentResult);
+  const [adImagesResult, adImagesFormAction, adImagesPending] = useActionState(
+    generateAdImages,
+    {} as GenerateAdImagesResult
   );
 
   return (
-    <div className="flex flex-col items-center py-20 min-h-screen bg-zinc-50 w-full">
-      <form
-        className="flex flex-col gap-2 w-full max-w-md"
-        action={formAction}
-      >
-        <FieldLabel>URL</FieldLabel>
-        <Input
-          name="url"
-          type="url"
-          placeholder="https://www.example.com"
-          required
+    <div className="flex flex-col lg:flex-row h-screen w-full bg-background">
+      <div className="hidden lg:flex lg:w-[320px] shrink-0 flex-col min-h-0 border-r overflow-hidden">
+        <GenerateContentSidebar
+          extractState={extractState}
+          extractFormAction={extractFormAction}
+          extractPending={extractPending}
+          adCopyResult={adCopyResult}
+          adCopyFormAction={adCopyFormAction}
+          adCopyPending={adCopyPending}
+          designResult={designResult}
+          designFormAction={designFormAction}
+          designPending={designPending}
+          adImagesResult={adImagesResult}
+          adImagesFormAction={adImagesFormAction}
+          adImagesPending={adImagesPending}
         />
-        <Button type="submit" disabled={isPending}>
-          {isPending ? "Extracting..." : "Extract"}
-        </Button>
-      </form>
+      </div>
 
-      <Suspense fallback={<div className="mt-8 text-sm text-zinc-500">Loading content…</div>}>
-        <Results state={state} />
-      </Suspense>
-    </div>
-  );
-}
+      <div className="flex-1 min-h-0 flex flex-col">
+        <ResultsPanel
+          extractState={extractState}
+          adCopyResult={adCopyResult}
+          adCopyPending={adCopyPending}
+          designResult={designResult}
+          designPending={designPending}
+          adImagesResult={adImagesResult}
+          adImagesPending={adImagesPending}
+        />
+      </div>
 
-function Results({ state }: { state: ExtractResult }) {
-  if (!state.url) return null;
+      <div className="hidden lg:flex lg:w-[380px] shrink-0 flex-col min-h-0 border-l overflow-hidden">
+        <PipelineSidebar
+          extractState={extractState}
+          extractPending={extractPending}
+          adCopyResult={adCopyResult}
+          adCopyPending={adCopyPending}
+          designResult={designResult}
+          designPending={designPending}
+          adImagesResult={adImagesResult}
+          adImagesPending={adImagesPending}
+        />
+      </div>
 
-  const textItems = state.items.filter(
-    (item) => item.type === "text" && item.content
-  );
-
-  return (
-    <div className="mt-10 w-full max-w-3xl space-y-8">
-      <h1 className="text-2xl font-bold">{state.url}</h1>
-      <section>
-        <h2 className="text-lg font-semibold mb-3">Text</h2>
-        {textItems.length === 0 ? (
-          <p className="text-sm text-zinc-500">No text found.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {textItems.map((item, index) => (
-              <div key={`text-${index}`} className="rounded-md border bg-white p-2 shadow-sm">
-                <p className="text-sm text-zinc-600 break-all">
-                  {item.content}
-                </p>
-              </div>
-            ))}
+      <div className="lg:hidden flex flex-col border-t gap-0">
+        <details className="group border-b">
+          <summary className="cursor-pointer list-none px-4 py-3 font-medium text-sm bg-muted/30 hover:bg-muted/50">
+            Generate content
+          </summary>
+          <div className="max-h-[50vh] overflow-y-auto px-4 pb-4">
+            <GenerateContentSidebar
+              extractState={extractState}
+              extractFormAction={extractFormAction}
+              extractPending={extractPending}
+              adCopyResult={adCopyResult}
+              adCopyFormAction={adCopyFormAction}
+              adCopyPending={adCopyPending}
+              designResult={designResult}
+              designFormAction={designFormAction}
+              designPending={designPending}
+              adImagesResult={adImagesResult}
+              adImagesFormAction={adImagesFormAction}
+              adImagesPending={adImagesPending}
+            />
           </div>
-        )}
-      </section>
-      <section>
-        <h2 className="text-lg font-semibold mb-3">Images</h2>
-        {state.images.length === 0 ? (
-          <p className="text-sm text-zinc-500">No images found.</p>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {state.images.map((img, index) => (
-              <figure
-                key={`${img.url}-${index}`}
-                className="rounded-md border bg-white p-2 shadow-sm flex flex-col items-center"
-              >
-                <img
-                  src={img.url}
-                  alt=""
-                  className="max-h-40 w-auto object-contain"
-                />
-              </figure>
-            ))}
+        </details>
+        <details className="group">
+          <summary className="cursor-pointer list-none px-4 py-3 font-medium text-sm bg-muted/30 hover:bg-muted/50">
+            Logs
+          </summary>
+          <div className="max-h-[50vh] overflow-y-auto">
+            <PipelineSidebar
+              extractState={extractState}
+              extractPending={extractPending}
+              adCopyResult={adCopyResult}
+              adCopyPending={adCopyPending}
+              designResult={designResult}
+              designPending={designPending}
+              adImagesResult={adImagesResult}
+              adImagesPending={adImagesPending}
+            />
           </div>
-        )}
-      </section>
-
-      <section>
-        <h2 className="text-lg font-semibold mb-3">Videos</h2>
-        {state.videos.length === 0 ? (
-          <p className="text-sm text-zinc-500">No videos found.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {state.videos.map((video, index) => (
-              <div
-                key={`${video.url}-${index}`}
-                className="rounded-md border bg-white p-2 shadow-sm"
-              >
-                <video
-                  src={video.url}
-                  controls
-                  className="w-full rounded-md"
-                />
-                <p className="mt-1 text-xs text-zinc-600 break-all">
-                  {video.url}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+        </details>
+      </div>
     </div>
   );
 }
